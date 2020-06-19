@@ -9,18 +9,17 @@ import Foundation
 
 
 
-public struct Queued<T>{
+public struct AsyncRef<T>{
     
     let _onRead : (@escaping Callback<T>) -> Void
     let _onMutatingRead : (@escaping (inout T) -> Void) -> Void
     
-    public init(queue: DispatchQueue = DispatchQueue(label: "QueueQueue"),
-                _ value: T){
+    public init(_ value: T){
         
         var mutable = value
         
-        self._onRead = {reader in queue.async{reader(mutable)}}
-        self._onMutatingRead = {reader in queue.async {reader(&mutable)}}
+        self._onRead = {reader in reader(mutable)}
+        self._onMutatingRead = {reader in reader(&mutable)}
         
     }
     

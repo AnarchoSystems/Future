@@ -11,40 +11,45 @@ import Foundation
 
 open class Agent{
     
-    open var queue = DispatchQueue(label: "AgentQueue")
     private var error : Error?{
         didSet{
             guard let reason = error else{
                 return
             }
-
-            let mirror = Mirror(reflecting: self)
-            for child in mirror.children{
-                let m = Mirror(reflecting: child.value)
-                for c in m.children{
-                    if let cheat = c.value as? CheatTypeForMirror<Self>{
-                        cheat.setCrash(reason)
-                    }
-                    if
-                        let downstreamAgent = c.value as? Agent{
-                        downstreamAgent.upstreamAgentDidCrashWrapper.send((agent: self, reason: reason))
+            
+            var mirror : Mirror? = Mirror(reflecting: self)
+            repeat{
+                for child in mirror!.children{
+                    let m = Mirror(reflecting: child.value)
+                    for c in m.children{
+                        if let cheat = c.value as? CheatTypeForMirror{
+                            cheat.setCrash(reason)
+                        }
+                        if
+                            let downstreamAgent = c.value as? Agent{
+                            downstreamAgent.upstreamAgentDidCrashWrapper.send((agent: self, reason: reason))
+                        }
                     }
                 }
-            }
+                mirror = mirror?.superclassMirror
+            }while (mirror != nil)
             onCrashWrapper.send(reason)
         }
     }
     
     public init(){
-        let mirror = Mirror(reflecting: self)
-        for child in mirror.children{
-            let m = Mirror(reflecting: child.value)
-            for c in m.children{
-                if let cheat = c.value as? CheatTypeForMirror<Self>{
-                    cheat.setOwner(self as! Self)
+        var mirror : Mirror? = Mirror(reflecting: self)
+        repeat{
+            for child in mirror!.children{
+                let m = Mirror(reflecting: child.value)
+                for c in m.children{
+                    if let cheat = c.value as? CheatTypeForMirror{
+                        cheat.setOwner(self as! Self)
+                    }
                 }
             }
-        }
+            mirror = mirror?.superclassMirror
+        }while (mirror != nil)
     }
     
     public func crash(reason: Error){
@@ -58,12 +63,12 @@ open class Agent{
     }
     
     
-    @Message(Agent.onCrash) private var onCrashWrapper
+    @Message(Agent.onCrash) public var onCrashWrapper
     open func onCrash(_ error: Error){
         
     }
     
-    @Message(Agent.upstreamAgentDidCrash) private var upstreamAgentDidCrashWrapper
+    @Message(Agent.upstreamAgentDidCrash) public var upstreamAgentDidCrashWrapper
     open func upstreamAgentDidCrash(tuple: (agent: Agent, reason: Error)){
         
     }
@@ -72,19 +77,19 @@ open class Agent{
 }
 
 
-fileprivate struct CheatTypeForMirror<Owner : Agent>{
+fileprivate struct CheatTypeForMirror{
     
-    let setOwner : (Owner) -> Void
-    let getOwner : () -> Owner
-    let getCrash : () -> Queued<Error?>
+    let setOwner : (Agent) -> Void
+    let getOwner : () -> Agent
+    let getCrash : () -> AsyncRef<Error?>
     let setCrash : (Error) -> Void
     
     init(){
         
-        weak var owner : Owner?
-        var crash : Queued<Error?>?
+        weak var owner : Agent?
+        var crash : AsyncRef<Error?>?
         
-        self.setOwner = {crash = Queued(queue: $0.queue, nil); owner = $0}
+        self.setOwner = {crash = AsyncRef(nil); owner = $0}
         self.getOwner = {owner ?? {fatalError("Called a method of an actor that no longer exists. This is considered invalid and indicates a bad concurrency architecture.")}()}
         self.setCrash = {error in crash?.enqueueMutatingRead{$0 = error}}
         self.getCrash = {crash ?? {fatalError("Property wrapper \"Message\" can only be used on Agent.")}()}
@@ -97,7 +102,7 @@ fileprivate struct CheatTypeForMirror<Owner : Agent>{
 @propertyWrapper
 public struct Message<Owner : Agent, T, U>{
     
-    private let cheat = CheatTypeForMirror<Owner>()
+    private let cheat = CheatTypeForMirror()
     private let selector : (Owner) -> ((T) throws -> U)
     
     public var wrappedValue : PromiseArrow<T,U>{
@@ -112,7 +117,7 @@ public struct Message<Owner : Agent, T, U>{
                     let owner = self.cheat.getOwner()
                     
                     do{
-                        handler(.success(try self.selector(owner)(t)))
+                        handler(.success(try self.selector(owner as! Owner)(t)))
                     }
                     catch{
                         handler(.failure(error))

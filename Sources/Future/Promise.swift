@@ -12,13 +12,11 @@ import Foundation
 public struct Promise<T>{
     
     let declaration : (@escaping Handler<T>) -> Void
-    let queue : DispatchQueue
     
-    internal init(queue: DispatchQueue, declaration: @escaping (@escaping Handler<T>) -> Void){
-        self.queue = queue
+    internal init(declaration: @escaping (@escaping Handler<T>) -> Void){
         self.declaration = {handler in
             
-            let wasCalled = Queued(queue: queue, false)
+            let wasCalled = AsyncRef(false)
             
             wasCalled.enqueueMutatingRead{called in
                 
@@ -36,10 +34,6 @@ public struct Promise<T>{
 
 
 public extension Promise{
-    
-    init(_ declaration: @escaping (@escaping Handler<T>) -> Void){
-        self = Promise(queue: DispatchQueue(label: "Promise"), declaration: declaration)
-    }
     
     init(_ declaration: @escaping (@escaping Callback<T>, @escaping Callback<Error>) -> Void){
         self = Promise{handler in
@@ -88,10 +82,10 @@ public extension Promise{
     
     func map<U>(_ transform: @escaping (T) -> U) -> Promise<U>{
         
-        Promise<U>(queue: self.queue) { (handler) in
+        Promise<U>{ (handler) in
             self
                 .handleError{handler(.failure($0))}
-                .execute(deliverOn: self.queue){handler(.success(transform($0)))}
+                .execute{handler(.success(transform($0)))}
         }
         
     }
@@ -99,10 +93,10 @@ public extension Promise{
     
     func then<U>(_ transform: @escaping (T) -> Promise<U>) -> Promise<U>{
         
-        Promise<U>(queue: self.queue) { (handler) in
+        Promise<U>{ (handler) in
             self
                 .handleError{handler(.failure($0))}
-                .execute(deliverOn: self.queue) {transform($0).execute(handler)}
+                .execute{transform($0).execute(handler)}
         }
         
     }
